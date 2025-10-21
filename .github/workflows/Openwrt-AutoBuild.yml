@@ -9,8 +9,7 @@
 name: Build OpenWrt
 
 on:
-  workflow_dispatch:
-
+  repository_dispatch:
 
 env:
   REPO_TOKEN: ${{ secrets.TOKEN_KIDDIN9 }}
@@ -32,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [ "${{ github.event.client_payload.target }}" ]
+        target: ["${{ github.event.client_payload.target }}"]
 
     steps:
       - name: Checkout
@@ -62,11 +61,8 @@ jobs:
           echo "UPLOAD_FIRMWARE_FOR_RELEASE=${UPLOAD_FIRMWARE_FOR_RELEASE}" >> $GITHUB_ENV
           echo "UPLOAD_FIRMWARE_TO_COWTRANSFER=${UPLOAD_FIRMWARE_TO_COWTRANSFER}" >> $GITHUB_ENV
           echo "UPLOAD_FIRMWARE_TO_WETRANSFER=${UPLOAD_FIRMWARE_TO_WETRANSFER}" >> $GITHUB_ENV
-          echo  $GITHUB_ENV
           sed -i "1a REPO_TOKEN=${{ secrets.TOKEN_KIDDIN9 }}" ${GITHUB_WORKSPACE}/devices/common/diy.sh
-          echo "DIY_SH=${DIY_SH}"
           sed -i "1a TARGET=${{matrix.target}}" ${GITHUB_WORKSPACE}/devices/common/diy.sh
-          echo "DIY_SH=${DIY_SH}"
           if [ ${{matrix.target}} == "x86_64" ]; then
               echo "ARCH=linux/amd64" >> $GITHUB_ENV
               echo "MTARGET=x86_64" >> $GITHUB_ENV
@@ -99,7 +95,7 @@ jobs:
               echo "MTARGET=aarch64_generic" >> $GITHUB_ENV
             fi
           fi
-          echo $GITHUB_ENV
+
       - name: Trigger Packages Update
         continue-on-error: true
         if: contains(github.event.action, 'pkg')
@@ -146,16 +142,14 @@ jobs:
           echo "date2=$(date +'%m/%d %Y')" >> $GITHUB_ENV
           VERSION="$(echo "${{github.event.action}}" | grep -Eo " [0-9.]+" | sed -e 's/ //')" || true
           [ "$VERSION" ] && echo "VERSION=$VERSION" >> $GITHUB_ENV || echo "VERSION=$(date +'%m.%d')" >> $GITHUB_ENV
-          echo $GITHUB_ENV
+
       - name: Clone source code
         run: |
           set -x
           TAG_INFO="$(curl -gs -H 'Content-Type: application/json' \
              -H "Authorization: Bearer ${{ secrets.TOKEN_KIDDIN9 }}" \
              -X POST -d '{ "query": "query {repository(owner: \"openwrt\", name: \"openwrt\") {refs(refPrefix: \"refs/tags/\", first: 4, orderBy: {field: TAG_COMMIT_DATE, direction: DESC}) {nodes {name target { ... on Tag {tagger {date}}}}}}}"}' https://api.github.com/graphql)"
-          echo ${TAG_INFO}
           TAG_DATE="$( echo ${TAG_INFO} | jq -r '.data.repository.refs.nodes[] | select(.name | startswith("v24")) | .target.tagger.date' | head -n 1)"
-          echo $tag_date
           if [[ $(( ($(date +%s) - $(date -d "$TAG_DATE" +%s)) / 86400 )) -lt 20 ]]; then
           REPO_BRANCH="$( echo ${TAG_INFO} | jq -r '.data.repository.refs.nodes[].name' | grep v24 | head -n 1)"
           #REPO_BRANCH="openwrt-24.10"
@@ -178,7 +172,6 @@ jobs:
                   git checkout ${REPO_BRANCH}
               fi
           fi
-          
 
       - name: Free up disk space
         env:
@@ -232,6 +225,7 @@ jobs:
             /bin/bash "devices/${{matrix.target}}/$DIY_SH"
           fi
           cp -Rf ./diy/* ./ || true
+
       - name: Apply patches
         run: |
           cd openwrt
@@ -291,7 +285,6 @@ jobs:
         run: |
           shopt -s extglob
           cd openwrt
-          echo .config
           echo -e "$(($(nproc)+1)) thread compile"
           make -j$(($(nproc)+1)) || make V=s &>build.log || (tail -50 build.log; curl -k --data chat_id="${{ env.TELEGRAM_CHAT_ID }}" --data "text=❌ OpenWrt ${{ env.VERSION }} ${{matrix.target}} 编译失败 😂" "https://api.telegram.org/bot${{ env.TELEGRAM_TOKEN }}/sendMessage";df -hT;exit 1)
           sed -i "s/# CONFIG_IB is not set/CONFIG_IB=y/" .config
